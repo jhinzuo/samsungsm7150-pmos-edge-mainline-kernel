@@ -39,11 +39,8 @@ jobs:
           git checkout master # Or your preferred pmaports branch
 
       - name: Check out custom pmaports (a71)
-        uses: actions/checkout@v4
-        with:
-          repository: https://git.web.home.dark-link.info/a71-pmos/pmaports-a71
-          ref: device/samsung-a71 # Ensure this is the correct branch
-          path: custom-pmaports-a71
+        run: |
+          git clone --depth=1 --branch device/samsung-a71 https://git.web.home.dark-link.info/a71-pmos/pmaports-a71 custom-pmaports-a71
 
       - name: Check kernel branch
         if: matrix.version == 'default'
