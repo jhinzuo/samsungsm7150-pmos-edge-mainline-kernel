@@ -6,13 +6,13 @@ on:
   #   - cron: '0 0 * * 5' # Run every friday at midnight
 
 env:
-  KERNEL_BRANCH: next
+  KERNEL_BRANCH: 2025-04-03 # Update the environment variable to match the branch
 
 jobs:
   build-image:
     strategy:
       matrix:
-        version: ["next", "default"]
+        version: ["2025-04-03", "default"] # Update the matrix to include your branch
 
     runs-on: ubuntu-latest
     steps:
@@ -51,7 +51,7 @@ jobs:
 
       - name: Clone custom kernel sources
         run: |
-          git clone https://github.com/WiiPlayer2/linux-sm7150.git --single-branch --branch ${{ env.KERNEL_BRANCH }} --depth 1 kernel-sm7150
+          git clone https://github.com/WiiPlayer2/linux-sm7150.git --single-branch --branch 2025-04-03 --depth 1 kernel-sm7150
 
       - name: Choose samsung-a71 device config
         run: |
@@ -84,7 +84,7 @@ jobs:
       - name: Upload samsung-a71 artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: samsung-a71-${{ env.KERNEL_BRANCH }}
+          name: samsung-a71-2025-04-03
           path: out/*-samsung-a71.img*
           retention-days: 7
 
