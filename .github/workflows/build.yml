@@ -41,7 +41,7 @@ jobs:
       - name: Check out custom pmaports (a71)
         uses: actions/checkout@v4
         with:
-          repository: a71-pmos/pmaports-a71
+          repository: https://git.web.home.dark-link.info/a71-pmos/pmaports-a71
           ref: device/samsung-a71 # Ensure this is the correct branch
           path: custom-pmaports-a71
 
@@ -58,7 +58,7 @@ jobs:
 
       - name: Choose samsung-a71 device config
         run: |
-          cp custom-pmaports-a71/samsung-a71.cfg ~/.config/pmbootstrap.cfg
+          cp custom-pmaports-a71/samsung-a71.devicepkg/samsung-a71.cfg ~/.config/pmbootstrap.cfg
 
       - name: Compile kernel with envkernel
         run: |
