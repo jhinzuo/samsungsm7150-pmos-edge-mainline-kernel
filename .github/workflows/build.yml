@@ -1,73 +1,182 @@
-name: Nightly Build (Custom Kernel)
-
+name: Build nightly images
 on:
-  workflow_dispatch:
-    
+  push:
+  workflow_dispatch: # This enables manual triggering from the GitHub UI
+  # schedule:
+  #   - cron: '0 0 * * 5' # Run every friday at midnight
+
+env:
+  KERNEL_BRANCH: next
 
 jobs:
-  build:
+  build-image:
+    strategy:
+      matrix:
+        version: ["next", "default"]
+
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout pmos Repositories
+      - name: Check out build configurations
         uses: actions/checkout@v4
-        with:
-          repository: postmarketOS/pmbootstrap # You might still need pmbootstrap
-          path: pmbootstrap
 
-      - name: Install Dependencies
+      - name: Substitute placeholders in configs
         run: |
-          sudo apt update
-          sudo apt install -y --no-install-recommends git make gcc bc bison flex libncurses5-dev libssl-dev
+          find . -type f -name "*.cfg" -exec sed -i "s|HOME|$(echo $HOME)|;s|NPROC|$(nproc)|" {} +
 
-      - name: Checkout Custom Kernel
-        uses: actions/checkout@v4
-        with:
-          repository: WiiPlayer2/linux-sm7150
-          ref: 2025-04-03 # Or your desired branch
-          path: kernel
+      - name: Install pmbootstrap from git
+        run: |
+          git clone --depth=1 https://gitlab.com/postmarketOS/pmbootstrap/
+          mkdir -p ~/.local/bin
+          ln -s "$PWD/pmbootstrap/pmbootstrap.py" ~/.local/bin/pmbootstrap
+          pmbootstrap --version
 
-      - name: Checkout Device Specific Files
+      - name: Set up pmaports (main)
+        run: |
+          echo -e '\n\n' | pmbootstrap init || true
+          cd ~/.local/var/pmbootstrap/cache_git/pmaports
+          git remote add upstream https://gitlab.com/postmarketOS/pmaports.git
+          git fetch upstream
+          git checkout master # Or your preferred pmaports branch
+
+      - name: Check out custom pmaports (a71)
         uses: actions/checkout@v4
         with:
           repository: a71-pmos/pmaports-a71
-          ref: device/samsung-a71 # Assuming this is the correct branch
-          path: pmaports-a71
+          ref: device/samsung-a71 # Ensure this is the correct branch
+          path: custom-pmaports-a71
 
-      - name: Prepare Kernel Configuration
+      - name: Check kernel branch
+        if: matrix.version == 'default'
         run: |
-          cd kernel
-          cp arch/arm64/configs/sm7150.config .config
-          make defconfig
+          DEFAULT_BRANCH=$(curl -s  https://api.github.com/repos/WiiPlayer2/linux-sm7150 | jq -r '.default_branch')
+          echo "Default kernel branch is $DEFAULT_BRANCH"
+          echo "KERNEL_BRANCH=$DEFAULT_BRANCH" >> $GITHUB_ENV
 
-      - name: Integrate Device Specific Kernel Patches (Example - Adapt as needed)
+      - name: Clone custom kernel sources
         run: |
-          cd kernel
-          # Assuming you have patches in your pmaports-a71 fork
-          # git apply ../pmaports-a71/path/to/your/patches/*.patch
+          git clone https://github.com/WiiPlayer2/linux-sm7150.git --single-branch --branch ${{ env.KERNEL_BRANCH }} --depth 1 kernel-sm7150
 
-      - name: Build Kernel
+      - name: Choose samsung-a71 device config
         run: |
-          cd kernel
+          cp custom-pmaports-a71/samsung-a71.cfg ~/.config/pmbootstrap.cfg
+
+      - name: Compile kernel with envkernel
+        run: |
+          cd kernel-sm7150
+          shopt -s expand_aliases
+          source ../pmbootstrap/helpers/envkernel.sh
+          make defconfig sm7150.config
           make -j$(nproc)
+          pmbootstrap build --envkernel linux-postmarketos-qcom-sm7150
 
-      - name: Build Modules
+      - name: Create artifact directory
         run: |
-          cd kernel
-          make modules -j$(nproc)
+          mkdir out
 
-      - name: Set up pmbootstrap Environment
+      - name: Build samsung-a71 image
         run: |
-          cd pmbootstrap
-          ./pmbootstrap.sh init # You might need to adjust this if already initialized
+          cp custom-pmaports-a71/samsung-a71.cfg ~/.config/pmbootstrap.cfg
+          pmbootstrap install --password 147147
+          pmbootstrap export
+          mkdir -p out
+          cp /tmp/postmarketOS-export/boot.img out/boot-samsung-a71.img
+          cp /tmp/postmarketOS-export/samsung-a71.img out/rootfs-samsung-a71.img
+          xz -T0 -9e -v out/rootfs-samsung-a71.img
+          echo -e "n\nn\ny\n" | pmbootstrap zap
 
-      - name: Build pmos Image
-        run: |
-          cd pmbootstrap
-          ./pmbootstrap.sh build --device samsung-a71 --kernel-dir ../kernel --extra-fde # Add other options as needed
-
-      - name: Upload Artifacts (Example - Adjust as needed)
-        uses: actions/upload-artifact@v3
+      - name: Upload samsung-a71 artifacts
+        uses: actions/upload-artifact@v4
         with:
-          name: pmos-image-samsung-a71
-          path: pmbootstrap/deploy/samsung-a71-*
+          name: samsung-a71-${{ env.KERNEL_BRANCH }}
+          path: out/*-samsung-a71.img*
+          retention-days: 7
+
+      - name: Build xiaomi-davinci
+        run: |
+          cp xiaomi-davinci.cfg ~/.config/pmbootstrap.cfg
+          pmbootstrap install --password 147147
+          pmbootstrap export
+          mkdir -p out
+          cp /tmp/postmarketOS-export/boot.img out/boot-xiaomi-davinci.img
+          cp /tmp/postmarketOS-export/xiaomi-davinci.img out/rootfs-xiaomi-davinci.img
+          xz -T0 -9e -v out/rootfs-xiaomi-davinci.img
+          echo -e "n\nn\ny\n" | pmbootstrap zap
+
+      - name: Upload xiaomi-davinci artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: xiaomi-davinci-${{ env.KERNEL_BRANCH }}
+          path: out/*-davinci.img*
+          retention-days: 7
+
+      - name: Build xiaomi-surya
+        run: |
+          cp xiaomi-surya.cfg ~/.config/pmbootstrap.cfg
+          pmbootstrap install --password 147147
+          pmbootstrap export
+          mkdir -p out
+          cp /tmp/postmarketOS-export/boot.img out/boot-xiaomi-surya.img
+          cp /tmp/postmarketOS-export/xiaomi-surya.img out/rootfs-xiaomi-surya.img
+          xz -T0 -9e -v out/rootfs-xiaomi-surya.img
+          echo -e "n\nn\ny\n" | pmbootstrap zap
+
+      - name: Upload xiaomi-surya artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: xiaomi-surya-${{ env.KERNEL_BRANCH }}
+          path: out/*-surya.img*
+          retention-days: 7
+
+      - name: Build xiaomi-sweet
+        run: |
+          cp xiaomi-sweet.cfg ~/.config/pmbootstrap.cfg
+          pmbootstrap install --password 147147
+          pmbootstrap export
+          mkdir -p out
+          cp /tmp/postmarketOS-export/boot.img out/boot-xiaomi-sweet.img
+          cp /tmp/postmarketOS-export/xiaomi-sweet.img out/rootfs-xiaomi-sweet.img
+          xz -T0 -9e -v out/rootfs-xiaomi-sweet.img
+          echo -e "n\nn\ny\n" | pmbootstrap zap
+
+      - name: Upload xiaomi-sweet artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: xiaomi-sweet-${{ env.KERNEL_BRANCH }}
+          path: out/*-sweet.img*
+          retention-days: 7
+
+      - name: Build xiaomi-sweet_k6a
+        run: |
+          cp xiaomi-sweet_k6a.cfg ~/.config/pmbootstrap.cfg
+          pmbootstrap install --password 147147
+          pmbootstrap export
+          mkdir -p out
+          cp /tmp/postmarketOS-export/boot.img out/boot-xiaomi-sweeet_k6a.img
+          cp /tmp/postmarketOS-export/xiaomi-sweet_k6a.img out/rootfs-xiaomi-sweet_k6a.img
+          xz -T0 -9e -v out/rootfs-xiaomi-sweet_k6a.img
+          echo -e "n\nn\ny\n" | pmbootstrap zap
+
+      - name: Upload xiaomi-sweet_k6a artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: xiaomi-sweet_k6a-${{ env.KERNEL_BRANCH }}
+          path: out/*-sweet_k6a.img*
+          retention-days: 7
+
+      - name: Build xiaomi-toco
+        run: |
+          cp xiaomi-toco.cfg ~/.config/pmbootstrap.cfg
+          pmbootstrap install --password 147147
+          pmbootstrap export
+          mkdir -p out
+          cp /tmp/postmarketOS-export/boot.img out/boot-xiaomi-toco.img
+          cp /tmp/postmarketOS-export/xiaomi-toco.img out/rootfs-xiaomi-toco.img
+          xz -T0 -9e -v out/rootfs-xiaomi-toco.img
+          echo -e "n\nn\ny\n" | pmbootstrap zap
+
+      - name: Upload xiaomi-toco artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: xiaomi-toco-${{ env.KERNEL_BRANCH }}
+          path: out/*-toco.img*
+          retention-days: 7
